@@ -18,9 +18,19 @@
 //#define DEBUG_LOGS
 #define WRITE_OUTPUT
 
-typedef union {
+typedef struct {
     char characters[101];
+    uint32_t key;
 } stationName;
+
+typedef struct {
+    stationName name;
+    int64_t total;
+    uint32_t num;
+    
+    int32_t min;
+    int32_t max;
+} stationEntry;
 
 static const uint32_t BUFF_LEN = (1<<15);
 static const uint32_t NUM_STATIONS = 10000;
@@ -30,7 +40,7 @@ static uint32_t parseName(uint8_t * data, stationName * name);
 static uint32_t parseTemp(uint8_t * data, int32_t * temp);
 
 
-@interface StationEntry : NSObject
+@interface BRCStationEntry : NSObject
 // average tracking
 @property (nonatomic, assign) NSInteger  total;
 @property (nonatomic, assign) NSUInteger num;
@@ -52,11 +62,11 @@ int main(int argc, char * argv[]) {
         [stream open];
         
         uint8_t buf[BUFF_LEN] = {0};
+        stationEntry stationList[NUM_STATIONS] = {0};
+        
         uint32_t leftover = 0;
         uint32_t remainingLen = (BUFF_LEN - 1);
         uint32_t linesRead = 0;
-        
-        NSMutableDictionary<NSString *, StationEntry *> * stationInfo = [NSMutableDictionary dictionaryWithCapacity:NUM_STATIONS];
         
         while ((bytesRead = [stream read:&buf[leftover]
                                maxLength:remainingLen]) > 0) {
@@ -65,6 +75,7 @@ int main(int argc, char * argv[]) {
             }
             
             stationName nameBuf = {0};
+            stationEntry *entry = NULL;
             int32_t temp = 0;
             uint32_t offset = 0;
             uint32_t lineOffset = 0;
@@ -72,17 +83,28 @@ int main(int argc, char * argv[]) {
                 offset += lineOffset;
                 linesRead++;
                 
-                NSString * name = [NSString stringWithUTF8String:nameBuf.characters];
-                StationEntry * entry = stationInfo[name];
-                if (entry == nil) {
-                    entry = [StationEntry new];
-                    stationInfo[name] = entry;
+                entry = &stationList[nameBuf.key];
+                if (entry->name.characters[0] == 0) {
+                    for (uint32_t i=0; nameBuf.characters[i] != 0; i++) {
+                        entry->name.characters[i] = nameBuf.characters[i];
+                    }
+                    entry->min = INT32_MAX;
+                    entry->max = INT32_MIN;
                 }
                 
-                entry.total += temp;
-                entry.num += 1;
-                entry.min = MIN(entry.min, temp);
-                entry.max = MAX(entry.max, temp);
+#ifdef DEBUG_LOGS
+                for (uint32_t i=0; entry->name.characters[i] != 0; i++) {
+                    if (entry->name.characters[i] != nameBuf.characters[i]) {
+                        assert("station name 'hash key' collision");
+                    }
+                }
+#endif
+                
+                
+                entry->total += temp;
+                entry->num += 1;
+                entry->min = MIN(entry->min, temp);
+                entry->max = MAX(entry->max, temp);
             }
             
             
@@ -97,11 +119,22 @@ int main(int argc, char * argv[]) {
         }
         [stream close];
         
+        NSMutableDictionary<NSString *, BRCStationEntry *> * stationInfo = [NSMutableDictionary dictionaryWithCapacity:NUM_STATIONS];
+        for (uint32_t i=0; i < NUM_STATIONS; i++) {
+            stationEntry *entry = &stationList[i];
+            if (entry->name.characters[0] == 0) { continue; }
+            
+            NSString * name = [NSString stringWithUTF8String:entry->name.characters];
+            BRCStationEntry * stationEntry = [BRCStationEntry new];
+            stationEntry.total = entry->total;
+            stationEntry.num   = entry->num;
+            stationEntry.min   = entry->min;
+            stationEntry.max   = entry->max;
+            
+            stationInfo[name] = stationEntry;
+        }
         
-        NSArray<NSString *> * stationNameList = [stationInfo allKeys];
-        stationNameList = [stationNameList sortedArrayUsingComparator:^NSComparisonResult(id  _Nonnull obj1, id  _Nonnull obj2) {
-            return [obj1 compare:obj2];
-        }];
+        NSArray<NSString *> * stationNameList = [[stationInfo allKeys] sortedArrayUsingSelector:@selector(compare:)];
 
 #ifdef DEBUG_LOGS
         NSLog(@"read %d lines and found %ld unique stations", linesRead, [stationNameList count]);
@@ -111,7 +144,7 @@ int main(int argc, char * argv[]) {
         fprintf(stdout, "{");
         NSUInteger idx = 0;
         for (NSString * name in stationNameList) {
-            StationEntry *entry = stationInfo[name];
+            BRCStationEntry *entry = stationInfo[name];
             
             fprintf(stdout, "%s=%s",
                     [name cStringUsingEncoding:NSUTF8StringEncoding],
@@ -141,15 +174,19 @@ static uint32_t parseLine(uint8_t * data, stationName * name, int32_t * temp) {
 static uint32_t parseName(uint8_t * data, stationName * name) {
     uint32_t offset = 0;
     
+    name->key = 0;
+    
     while (data[offset] != ';') {
         if (data[offset] == 0) { return 0; }
         
         name->characters[offset] = data[offset];
+        name->key += data[offset];
         
         offset++;
     }
     
     name->characters[offset] = 0;
+    name->key = name->key % NUM_STATIONS;
     
     return ++offset;
 }
@@ -181,7 +218,7 @@ static uint32_t parseTemp(uint8_t * data, int32_t * temp) {
     return ++offset;
 }
 
-@implementation StationEntry
+@implementation BRCStationEntry
 
 - (instancetype)init {
     self = [super init];
