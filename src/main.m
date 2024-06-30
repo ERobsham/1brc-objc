@@ -61,7 +61,7 @@ int main(int argc, char * argv[]) {
         while ((bytesRead = [stream read:&buf[leftover]
                                maxLength:remainingLen]) > 0) {
             if (bytesRead < remainingLen) {
-                buf[bytesRead+1] = 0;
+                buf[bytesRead+leftover+1] = 0;
             }
             
             stationName nameBuf = {0};
