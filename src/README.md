@@ -32,5 +32,82 @@ Shooting for a fairly 'vanilla' impelmentation:
  * finally, once fully parsed. sort keys and output formatted results.
  * single-thread.  No specific optimizations.
 
+### Initial results:
+
+Horrible performance 0/10: `314.92s user 7.14s system 98% cpu 5:27.95 total`
+Taking a process sample, a few things stood out:
+```
+Call graph:
+    2580 Thread_3298614   DispatchQueue_1: com.apple.main-thread  (serial)
+      2580 start  (in dyld) + 1903  [0x7ff80326c41f]
+        1135 main  (in calc_1brc) + 816  [0x1058f1659]  main.m:75
+        + 958 +[NSString stringWithUTF8String:]  (in Foundation) + 68  [0x7ff8044f35c7]
+        ...
+        561 main  (in calc_1brc) + 854  [0x1058f167f]  main.m:76
+        + 238 -[__NSDictionaryM objectForKeyedSubscript:]  (in CoreFoundation) + 172  [0x7ff80366b32e]
+        ...
+        245 main  (in calc_1brc) + 1077  [0x1058f175e]  main.m:86
+        + 131 _CFRelease  (in CoreFoundation) + 1402  [0x7ff80376ff41]
+        ...
+        194 main  (in calc_1brc) + 680,640,...  [0x1058f15d1,0x1058f15a9,...]  main.m:71
+        147 main  (in calc_1brc) + 862  [0x1058f1687]  main.m:76
+        + 145 objc_retain  (in libobjc.A.dylib) + 22,80,...  [0x7ff8032310a6,0x7ff8032310e0,...]
+```
+
+Lets break that down a bit.   So from the total of 2580 samples, these are a few of the big hitters.
+
+1) Converting the station name into a NSString (~44% of samples):
+```
+1135 main  (in calc_1brc) + 816  [0x1058f1659]  main.m:75
++ 958 +[NSString stringWithUTF8String:]  (in Foundation) + 68  [0x7ff8044f35c7]
+  (only other call worth mentioning was from objc_msgSend calls @ 74 samples)
+     V
+translates to
+     V
+NSString * name = [NSString stringWithUTF8String:nameBuf.characters];
+```
+
+2) Getting the datamodel from the dictionary storage (~22% of time):
+```
+561 main  (in calc_1brc) + 854  [0x1058f167f]  main.m:76
++ 238 -[__NSDictionaryM objectForKeyedSubscript:]  
+  (519 if counting all instances of this method, remaining ~40+ are from -hash / objc_msgSend calls)
+     V
+translates to
+     V
+StationEntry * entry = stationInfo[name];
+```
+
+3) Objc overhead -- release (~9.5%):
+```
+245 main  (in calc_1brc) + 1077  [0x1058f175e]  main.m:86
++ 131 _CFRelease  (in CoreFoundation) + 1402  [0x7ff80376ff41]
+  (245 if counting every variation of a release function/method call)
+     V
+translates to the end of scope on the 'line parsing' while loop.
+```
+
+4) actual data parsing (~7.5%):
+```
+194 main  (in calc_1brc) + 680,640,...  [0x1058f15d1,0x1058f15a9,...]  main.m:71
+     V
+translates to
+     V
+while ((lineOffset = parseLine(&buf[offset], &nameBuf, &temp)) > 0) {
+```
+
+
+5) More objc overhead -- retain (~5.5%):
+```
+147 main  (in calc_1brc) + 862  [0x1058f1687]  main.m:76
++ 145 objc_retain  (in libobjc.A.dylib) + 22,80,...  [0x7ff8032310a6,0x7ff8032310e0,...]
+```
+
+#### Takeaways:
+
+Using objc/fully heap allocated memory to parse data is ... _less than ideal_.  During more than 80% of the samples we were either waiting on memory to be created to store the station name, or awaiting retrieval of the data model from the NSDictionary.   Also somewhat hilariously, we're seeing double the amount of samples in calls handling ARC than we were seeing in calls actually doing to work to parse the data..!
+
+Disclaimer:  where this took almost 5.5mins to complete, this was only data from a single run -- its quite possible the total time number could vary a good amount, however I did take fair number of process samples, all with relatively close distribution of the high level calls
+
 
 
