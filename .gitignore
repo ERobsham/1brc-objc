@@ -1,0 +1,6 @@
+
+*.xcodeproj/xc*data/
+
+data/*
+products/*
+
