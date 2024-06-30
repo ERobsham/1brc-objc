@@ -44,6 +44,7 @@
 		2EDFB1FB2C3053960032E1B6 = {
 			isa = PBXGroup;
 			children = (
+				2E5B80CC2C30858E0019D885 /* README.md */,
 				2EDFB2062C3053960032E1B6 /* src */,
 				2EDFB2052C3053960032E1B6 /* Products */,
 			);
@@ -61,7 +62,6 @@
 			isa = PBXGroup;
 			children = (
 				2E5B80CA2C3084140019D885 /* main.m */,
-				2E5B80CC2C30858E0019D885 /* README.md */,
 			);
 			path = src;
 			sourceTree = "<group>";
