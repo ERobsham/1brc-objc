@@ -9,6 +9,10 @@
 /* Begin PBXBuildFile section */
 		2E5B80C92C3083140019D885 /* calc_1brc in CopyFiles */ = {isa = PBXBuildFile; fileRef = 2EDFB2042C3053960032E1B6 /* calc_1brc */; };
 		2E5B80CB2C3084140019D885 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = 2E5B80CA2C3084140019D885 /* main.m */; };
+		2E5B80CF2C3212270019D885 /* BRCFileReader.m in Sources */ = {isa = PBXBuildFile; fileRef = 2E5B80CE2C3212270019D885 /* BRCFileReader.m */; };
+		2E5B80D22C362B2C0019D885 /* BRCWorker.m in Sources */ = {isa = PBXBuildFile; fileRef = 2E5B80D12C362B2C0019D885 /* BRCWorker.m */; };
+		2E5B80D62C362FA30019D885 /* BRCStationEntry.m in Sources */ = {isa = PBXBuildFile; fileRef = 2E5B80D52C362FA30019D885 /* BRCStationEntry.m */; };
+		2E5B80D92C3631A10019D885 /* BRCCoordinator.m in Sources */ = {isa = PBXBuildFile; fileRef = 2E5B80D82C3631A10019D885 /* BRCCoordinator.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -27,6 +31,15 @@
 /* Begin PBXFileReference section */
 		2E5B80CA2C3084140019D885 /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
 		2E5B80CC2C30858E0019D885 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
+		2E5B80CD2C3212270019D885 /* BRCFileReader.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BRCFileReader.h; sourceTree = "<group>"; };
+		2E5B80CE2C3212270019D885 /* BRCFileReader.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = BRCFileReader.m; sourceTree = "<group>"; };
+		2E5B80D02C362B2C0019D885 /* BRCWorker.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BRCWorker.h; sourceTree = "<group>"; };
+		2E5B80D12C362B2C0019D885 /* BRCWorker.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = BRCWorker.m; sourceTree = "<group>"; };
+		2E5B80D42C362FA30019D885 /* BRCStationEntry.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BRCStationEntry.h; sourceTree = "<group>"; };
+		2E5B80D52C362FA30019D885 /* BRCStationEntry.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = BRCStationEntry.m; sourceTree = "<group>"; };
+		2E5B80D72C3631A10019D885 /* BRCCoordinator.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BRCCoordinator.h; sourceTree = "<group>"; };
+		2E5B80D82C3631A10019D885 /* BRCCoordinator.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = BRCCoordinator.m; sourceTree = "<group>"; };
+		2E5B80DA2C3635400019D885 /* BRCProtocols.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = BRCProtocols.h; sourceTree = "<group>"; };
 		2EDFB2042C3053960032E1B6 /* calc_1brc */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = calc_1brc; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -62,6 +75,15 @@
 			isa = PBXGroup;
 			children = (
 				2E5B80CA2C3084140019D885 /* main.m */,
+				2E5B80DA2C3635400019D885 /* BRCProtocols.h */,
+				2E5B80CD2C3212270019D885 /* BRCFileReader.h */,
+				2E5B80CE2C3212270019D885 /* BRCFileReader.m */,
+				2E5B80D02C362B2C0019D885 /* BRCWorker.h */,
+				2E5B80D12C362B2C0019D885 /* BRCWorker.m */,
+				2E5B80D42C362FA30019D885 /* BRCStationEntry.h */,
+				2E5B80D52C362FA30019D885 /* BRCStationEntry.m */,
+				2E5B80D72C3631A10019D885 /* BRCCoordinator.h */,
+				2E5B80D82C3631A10019D885 /* BRCCoordinator.m */,
 			);
 			path = src;
 			sourceTree = "<group>";
@@ -123,7 +145,11 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				2E5B80D22C362B2C0019D885 /* BRCWorker.m in Sources */,
+				2E5B80D92C3631A10019D885 /* BRCCoordinator.m in Sources */,
+				2E5B80CF2C3212270019D885 /* BRCFileReader.m in Sources */,
 				2E5B80CB2C3084140019D885 /* main.m in Sources */,
+				2E5B80D62C362FA30019D885 /* BRCStationEntry.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

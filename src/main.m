@@ -6,6 +6,7 @@
 //
 
 #import <Foundation/Foundation.h>
+#import "BRCCoordinator.h"
 
 #define DATA_DIR [[[NSFileManager defaultManager] currentDirectoryPath] stringByAppendingPathComponent:@"data"]
 
@@ -18,36 +19,7 @@
 //#define DEBUG_LOGS
 #define WRITE_OUTPUT
 
-typedef struct {
-    char characters[101];
-    uint32_t key;
-} stationName;
-
-typedef struct {
-    stationName name;
-    int64_t total;
-    uint32_t num;
-    
-    int32_t min;
-    int32_t max;
-} stationEntry;
-
-static const uint32_t BUFF_LEN = (1<<15);
-static const uint32_t NUM_STATIONS = 10000;
-
-static uint32_t parseLine(uint8_t * data, stationName * name, int32_t * temp);
-static uint32_t parseName(uint8_t * data, stationName * name);
-static uint32_t parseTemp(uint8_t * data, int32_t * temp);
-
-
-@interface BRCStationEntry : NSObject
-// average tracking
-@property (nonatomic, assign) NSInteger  total;
-@property (nonatomic, assign) NSUInteger num;
-
-@property (nonatomic, assign) NSInteger min;
-@property (nonatomic, assign) NSInteger max;
-@end
+static const uint8_t NUM_CORES = 4;
 
 
 int main(int argc, char * argv[]) {
@@ -57,184 +29,17 @@ int main(int argc, char * argv[]) {
         NSLog(@"parsing file at path: %@", path);
 #endif
         
-        NSInputStream * stream = [NSInputStream inputStreamWithFileAtPath:path];
-        NSUInteger bytesRead = 0;
-        [stream open];
+        BRCCoordinator * coordinator = [[BRCCoordinator alloc] initWith:path numWorkers:NUM_CORES];
         
-        uint8_t buf[BUFF_LEN] = {0};
-        stationEntry stationList[NUM_STATIONS] = {0};
-        
-        uint32_t leftover = 0;
-        uint32_t remainingLen = (BUFF_LEN - 1);
-        uint32_t linesRead = 0;
-        
-        while ((bytesRead = [stream read:&buf[leftover]
-                               maxLength:remainingLen]) > 0) {
-            if (bytesRead < remainingLen) {
-                buf[bytesRead+leftover+1] = 0;
-            }
-            
-            stationName nameBuf = {0};
-            stationEntry *entry = NULL;
-            int32_t temp = 0;
-            uint32_t offset = 0;
-            uint32_t lineOffset = 0;
-            while ((lineOffset = parseLine(&buf[offset], &nameBuf, &temp)) > 0) {
-                offset += lineOffset;
-                linesRead++;
-                
-                entry = &stationList[nameBuf.key];
-                if (entry->name.characters[0] == 0) {
-                    for (uint32_t i=0; nameBuf.characters[i] != 0; i++) {
-                        entry->name.characters[i] = nameBuf.characters[i];
-                    }
-                    entry->min = INT32_MAX;
-                    entry->max = INT32_MIN;
-                }
-                
-#ifdef DEBUG_LOGS
-                for (uint32_t i=0; entry->name.characters[i] != 0; i++) {
-                    if (entry->name.characters[i] != nameBuf.characters[i]) {
-                        assert("station name 'hash key' collision");
-                    }
-                }
-#endif
-                
-                
-                entry->total += temp;
-                entry->num += 1;
-                entry->min = MIN(entry->min, temp);
-                entry->max = MAX(entry->max, temp);
-            }
-            
-            
-            // shuffle any remaining bytes to the front of the buffer
-            uint32_t idx = 0;
-            while (offset < (BUFF_LEN-1)) {
-                buf[idx++] = buf[offset++];
-            }
-            
-            leftover = idx;
-            remainingLen = (BUFF_LEN - (leftover + 1));
-        }
-        [stream close];
-        
-        NSMutableDictionary<NSString *, BRCStationEntry *> * stationInfo = [NSMutableDictionary dictionaryWithCapacity:NUM_STATIONS];
-        for (uint32_t i=0; i < NUM_STATIONS; i++) {
-            stationEntry *entry = &stationList[i];
-            if (entry->name.characters[0] == 0) { continue; }
-            
-            NSString * name = [NSString stringWithUTF8String:entry->name.characters];
-            BRCStationEntry * stationEntry = [BRCStationEntry new];
-            stationEntry.total = entry->total;
-            stationEntry.num   = entry->num;
-            stationEntry.min   = entry->min;
-            stationEntry.max   = entry->max;
-            
-            stationInfo[name] = stationEntry;
-        }
-        
-        NSArray<NSString *> * stationNameList = [[stationInfo allKeys] sortedArrayUsingSelector:@selector(compare:)];
+        [coordinator run];
 
 #ifdef DEBUG_LOGS
-        NSLog(@"read %d lines and found %ld unique stations", linesRead, [stationNameList count]);
+        [coordinator printStats];
 #endif
         
 #ifdef WRITE_OUTPUT
-        fprintf(stdout, "{");
-        NSUInteger idx = 0;
-        for (NSString * name in stationNameList) {
-            BRCStationEntry *entry = stationInfo[name];
-            
-            fprintf(stdout, "%s=%s",
-                    [name cStringUsingEncoding:NSUTF8StringEncoding],
-                    [[entry description] cStringUsingEncoding:NSUTF8StringEncoding]);
-            
-            if (++idx != [stationNameList count]) {
-                fprintf(stdout, ", ");
-            }
-        }
-        fprintf(stdout, "}\n");
+        [coordinator outputResults];
 #endif
     }
     return 0;
 }
-
-
-static uint32_t parseLine(uint8_t * data, stationName * name, int32_t * temp) {
-    uint32_t offsetName = 0;
-    uint32_t offsetTemp = 0;
-    
-    if ((offsetName = parseName(data, name)) == 0) { return 0; }
-    if ((offsetTemp = parseTemp(&data[offsetName], temp)) == 0) { return 0; }
-    
-    return offsetName + offsetTemp;
-}
-
-static uint32_t parseName(uint8_t * data, stationName * name) {
-    uint32_t offset = 0;
-    
-    name->key = 0;
-    
-    while (data[offset] != ';') {
-        if (data[offset] == 0) { return 0; }
-        
-        name->characters[offset] = data[offset];
-        name->key += data[offset];
-        
-        offset++;
-    }
-    
-    name->characters[offset] = 0;
-    name->key = name->key % NUM_STATIONS;
-    
-    return ++offset;
-}
-
-static uint32_t parseTemp(uint8_t * data, int32_t * temp) {
-    uint32_t offset = 0;
-    
-    int8_t multi = 1;
-    uint32_t accum = 0;
-    
-    while (data[offset] != '\n') {
-        if (data[offset] == 0) { return 0; }
-        
-        switch (data[offset]) {
-            case '-': { multi = -1; } break;
-            case '.': { } break;
-            default: {
-                uint8_t val = data[offset] - '0';
-                ((accum *= 10) && (accum += val)) ||
-                (accum = val);
-            } break;
-        }
-        
-        offset++;
-    }
-    
-    *temp = (accum * multi);
-    
-    return ++offset;
-}
-
-@implementation BRCStationEntry
-
-- (instancetype)init {
-    self = [super init];
-    if (self) {
-        self.min = NSIntegerMax;
-        self.max = NSIntegerMin;
-    }
-    return self;
-}
-
-- (NSString *)description {
-    double min  = (double)self.min / 10.0;
-    double mean = ((double)self.total / (double)self.num) / 10.0;
-    double max  = (double)self.max / 10.0;
-    
-    return [NSString stringWithFormat:@"%.1f/%.1f/%.1f", min, mean, max];
-}
-
-@end
