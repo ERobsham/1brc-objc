@@ -1,6 +1,6 @@
 #  One Billion Row Challenge - Objc
 
-Have been seeing/hearing a decent amout of buzz around this challenge.  Rather than installing a whole JVM & IDE just to take a pass at it, I figured id give it a go in another (in?)famously object orientented language.
+Have been seeing/hearing a decent amount of buzz around this challenge.  Rather than installing a whole JVM & IDE just to take a pass at it, I figured id give it a go in another (in?)famously object orientated language.
 
 Its a language I end up spending a lot of time interacting with at work maintaining a large legacy codebase of objc.  Based on my experience thus far I expect it will be a good challenge to get any kind of decent performance out of essentially the `javascript` of compiled languages.  But I figured it'd probably be fun to try anyways..!     
 
@@ -23,16 +23,16 @@ Test runner specs:
 
 # Results
 
-## Initial implementation overview:
+## Initial implementation overview (`6459d5`):
 
-Shooting for a fairly 'vanilla' impelmentation:
+Shooting for a fairly 'vanilla' implementation:
  * use NSInputStream for fetching raw data from the measurements file (since theres no possible way to load a 14+ gb file into my 8gb of RAM).
  * parse raw data using just plain `c` style char[] iteration.
  * wrap parsed data in a minimal objective-c `StationEntry` data model class, storing results in NSMutableDictionary, keyed by the station name.
  * finally, once fully parsed. sort keys and output formatted results.
  * single-thread.  No specific optimizations.
 
-### Initial results (`6459d5`):
+### Initial results:
 
 Horrible performance 0/10: `314.92s user 7.14s system 98% cpu 5:27.95 total`
 Taking a process sample, a few things stood out:
@@ -110,7 +110,14 @@ Using objc/fully heap allocated memory to parse data is ... _less than ideal_.  
 Disclaimer:  where this took almost 5.5mins to complete, this was only data from a single run -- its quite possible the total time number could vary a good amount, however I did take fair number of process samples, all with relatively close distribution of the high level calls
 
 
-### Round 2 - less obj, more c - results (`d1bc89`):
+## Round 2 - less obj, more c - implementation overview (`d1bc89`):
+
+Notable changes:
+ * skip wrapping the raw data in objc types during row parsing and just keep track of them in C structs.
+ * downside: using a _very_ naive 'hash' for the station names that is used to index into their cumulative results. 
+   Assuming some stations data is certainly getting merged together. Choosing to ignoring this for now, where I'm more interested in just the time it takes to parse.
+
+### less obj, more c results:
 
 Not great performance, but _muuuch_ better than original: `40.12s user 5.76s system 90% cpu 50.458 total`
 This time I was patient enough to run a few cycles, all falling within the 50 sec +/- a few tenths of a second. 
