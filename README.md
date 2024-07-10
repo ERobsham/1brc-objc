@@ -182,3 +182,81 @@ Lastly, Seems like we're getting a measurable performance hit dereferencing a va
 My best guess right now would be its such a large chunk of data, and the 'station name key' are accessed randomly, so even though this is an O(1) lookup, we're running into cache misses, and causing some slowdowns there. 
 
 
+## Round 3 - parallelize - implementation overview (`1d3fd6`):
+
+The parallelization changing over adds a single `BRCCoordinator` instance that starts up a single `BRCFileReader`, and a few `BRCWorkers`.
+
+The `BRCFileReader` handles loading data into buffers, which it adds to a list of buffers that are loaded and ready to hand off to worker threads.  Upon initialization it takes the current thread as its 'work thread' and preloads all its buffers, in preparation for workers to start requesting chunks.
+The `BRCFileReader` primarily runs on a single thread and handles trimming any 'partial' data off the end of a buffer (looking for the first `\n` from the end), and appending it to the beginning of the next buffer before continuing to read from the `NSInputStream`, and adding that chunk into its list of buffers available for other threads to grab.  Having the centralized reader, which only loads buffers on the main thread makes handling this 'chunking' nice and easy, so workers don't have to worry about reporting back 'leftover' data they didn't consume.
+
+The `BRCWorker` instances detach their own background threads and immediately start running. Once the `BRCDataLoader` service they were initialized with returns a `nil` response when requesting more data to work on, they exit their background thread.
+
+Finally `BRCCoordinator` would just spin the runloop (which `BRCFileReader` depends on) awaiting all the `BRCWorker` instances it spun up to finish.
+
+
+### parallelize results:
+
+Still not _amazing_, but getting acceptable results considering the machine/language combo I'm using: `49.73s user 6.99s system 432% cpu 13.117 total`.
+And the results times for this iteration were definitely much more dependent on what other tasks were running (ie, while Chrome, Xcode, and VSCode were running, that number shot up to over 17sec). However, if I exclusively ran the test in a single terminal window with no other applications in the background, solidly getting ~13 sec runs.
+
+And this time the process sample is showing the 'read' thread is mostly idle (in the process of reading the file in for just over 25% of the samples):
+```
+Call graph:
+    1963 Thread_24765   DispatchQueue_1: com.apple.main-thread  (serial)
+    + 1963 start  (in dyld) + 1903  [0x7ff8143c741f]
+    +   1963 main  (in calc_1brc) + 219  [0x1026664ea]  main.m:34
+    +     1963 -[BRCCoordinator run]  (in calc_1brc) + 1002  [0x1026650fd]  BRCCoordinator.m:59
+    +       1963 -[NSRunLoop(NSRunLoop) runMode:beforeDate:]  (in Foundation) + 216  [0x7ff8156890e3]
+    +         1963 CFRunLoopRunSpecific  (in CoreFoundation) + 560  [0x7ff8147fbeb1]
+    +           1437 __CFRunLoopRun  (in CoreFoundation) + 1365  [0x7ff8147fca70]
+                      ...
+    +           !         1437 mach_msg2_trap  (in libsystem_kernel.dylib) + 10  [0x7ff8146e3552]
+    +           526 __CFRunLoopRun  (in CoreFoundation) + 916  [0x7ff8147fc8af]
+    +             526 __CFRunLoopDoSources0  (in CoreFoundation) + 217  [0x7ff8147fdc25]
+    +               526 __CFRunLoopDoSource0  (in CoreFoundation) + 157  [0x7ff8147fde4c]
+    +                 526 __CFRUNLOOP_IS_CALLING_OUT_TO_A_SOURCE0_PERFORM_FUNCTION__  (in CoreFoundation) + 17  [0x7ff8147fdeaa]
+    +                   525 __NSThreadPerformPerform  (in Foundation) + 177  [0x7ff8156a95b3]
+    +                   : 524 -[BRCFileReader returnChunk:]  (in calc_1brc) + 207  [0x102666187]  BRCFileReader.m:147
+    +                   : | 524 -[BRCFileReader loadNextChunkInto:]  (in calc_1brc) + 262  [0x102665ded]  BRCFileReader.m:87
+                        ...
+```
+
+But the work threads are crunching even harder, exposing some more bottlenecks.  The main parsing takes up just over 50% of all samples, the 'station is initialized' check takes close to 25% of all samples now, and _almost_ shockingly even having the workers use a _non-atomic_ property to track the number if lines they've parsed it takes almost 10% of all samples to do a simple `+= 1`increment:
+```
+1963 Thread_24784
+    + 1963 thread_start  (in libsystem_pthread.dylib) + 15  [0x7ff81471dbd3]
+    +   1963 _pthread_start  (in libsystem_pthread.dylib) + 125  [0x7ff8147221d3]
+    +     1963 __NSThread__start__  (in Foundation) + 1009  [0x7ff815682393]
+    +       1025 -[BRCWorker runLoop]  (in calc_1brc) + 310,380,...  [0x102664704,0x10266474a,...]  BRCWorker.m:69
+    +       464 -[BRCWorker runLoop]  (in calc_1brc) + 575,571  [0x10266480d,0x102664809]  BRCWorker.m:74
+    +       167 -[BRCWorker runLoop]  (in calc_1brc) + 580,586,...  [0x102664812,0x102664818,...]  BRCWorker.m:96
+    +       134 -[BRCWorker runLoop]  (in calc_1brc) + 525  [0x1026647db]  BRCWorker.m:71
+    +       ! 121 objc_msgSend  (in libobjc.A.dylib) + 46,33,...  [0x7ff81438c22e,0x7ff81438c221,...]
+    +       ! 13 -[BRCWorker linesRead]  (in calc_1brc) + 0,10  [0x102664ab8,0x102664ac2]  BRCWorker.h:27
+    +       71 -[BRCWorker runLoop]  (in calc_1brc) + 547  [0x1026647f1]  BRCWorker.m:71
+    +       ! 56 objc_msgSend  (in libobjc.A.dylib) + 46,37,...  [0x7ff81438c22e,0x7ff81438c225,...]
+    +       ! 14 -[BRCWorker setLinesRead:]  (in calc_1brc) + 10,0  [0x102664ace,0x102664ac4]  BRCWorker.m:35
+    +       ! 1 -[BRCWorker setLinesRead:]  (in calc_1brc) + 4  [0x102664ac8]  BRCWorker.m:0
+    +       47 -[BRCWorker runLoop]  (in calc_1brc) + 657,475,...  [0x10266485f,0x1026647a9,...]  BRCWorker.m:0
+    +       22 -[BRCWorker runLoop]  (in calc_1brc) + 577,667,...  [0x10266480f,0x102664869,...]  BRCWorker.m:95
+    +       17 -[BRCWorker runLoop]  (in calc_1brc) + 516,531,...  [0x1026647d2,0x1026647e1,...]  BRCWorker.m:71
+    +       8 -[BRCWorker runLoop]  (in calc_1brc) + 552,549,...  [0x1026647f6,0x1026647f3,...]  BRCWorker.m:73
+    +       4 -[BRCWorker runLoop]  (in calc_1brc) + 653  [0x10266485b]  BRCWorker.m:93
+    +       3 -[BRCWorker runLoop]  (in calc_1brc) + 810  [0x1026648f8]  BRCWorker.m:61
+    +       ! 3 -[BRCFileReader nextChunk]  (in calc_1brc) + 419  [0x10266607f]  BRCFileReader.m:136
+    +       !   3 usleep  (in libsystem_c.dylib) + 53  [0x7ff8145d84bb]
+    +       !     3 nanosleep  (in libsystem_c.dylib) + 196  [0x7ff8145d8585]
+    +       !       3 __semwait_signal  (in libsystem_kernel.dylib) + 10  [0x7ff8146e5f5e]
+    +       1 -[BRCWorker runLoop]  (in calc_1brc) + 664  [0x102664866]  BRCWorker.m:94
+```
+
+#### Takeaways:
+
+The problem is actually being completed before I have the urge to walk away, so we've made some good progress.  I wasn't expecting great things from objc in general, but I think it does a great job of highlighting its many weaknesses and one strength -- its dynamically typed, dynamically dispatched, entirely heap allocated, slow which make it a terrible choice for this challenge.  But its really fairly good at making threaded interfaces easy to use, and where its a pure `C` extension, that access to an easy mechanism to pass data between threads can be leveraged to wrap some lower level C data manipulation, and still get some _fairly_ decent results out of it.
+
+
+## Wrapping up
+
+I think pushing this much further would be a bit painful, and I think trying this out in a different language which is more performant at a baseline would be where Id prefer to spend my time.
+
+Either way, taking this from a base runtime of ~6.5mins down to under 15sec has been a fun little experiment.  I think the next time, I might tackle this in `go`. While not being the _best_ choice for this kind of challenge, but just being a decent step up in baseline speed, with new challenges to overcome (ie, minimizing the garbage collection impact and avoiding hoisting variables into the heap, etc).
